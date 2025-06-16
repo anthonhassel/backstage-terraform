@@ -1,0 +1,244 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: azure-storage-account-template
+  title: Azure Storage Account Deployment
+  description: Deploy an Azure Storage Account with configurable parameters
+  tags:
+    - azure
+    - storage
+    - infrastructure
+    - bicep
+spec:
+  owner: platform-team
+  type: service
+  
+  # Input parameters for the template
+  parameters:
+    - title: Storage Account Configuration
+      required:
+        - name
+        - location
+        - sku
+        - environment
+      properties:
+        name:
+          title: Storage Account Name
+          type: string
+          description: Name of the Azure Storage Account (must be globally unique, 3-24 characters, lowercase letters and numbers only)
+          pattern: '^[a-z0-9]{3,24}$'
+          ui:autofocus: true
+          ui:help: 'Storage account names must be between 3 and 24 characters in length and may contain numbers and lowercase letters only. The name must be globally unique across Azure.'
+        
+        location:
+          title: Azure Region
+          type: string
+          description: Azure region where the storage account will be deployed
+          default: eastus
+          enum:
+            - eastus
+            - eastus2
+            - westus
+            - westus2
+            - westus3
+            - centralus
+            - northcentralus
+            - southcentralus
+            - westcentralus
+            - canadacentral
+            - canadaeast
+            - brazilsouth
+            - northeurope
+            - westeurope
+            - francecentral
+            - germanywestcentral
+            - norwayeast
+            - switzerlandnorth
+            - uksouth
+            - ukwest
+            - australiaeast
+            - australiasoutheast
+            - centralindia
+            - southindia
+            - japaneast
+            - japanwest
+            - koreacentral
+            - southeastasia
+            - eastasia
+          enumNames:
+            - 'East US'
+            - 'East US 2'
+            - 'West US'
+            - 'West US 2'
+            - 'West US 3'
+            - 'Central US'
+            - 'North Central US'
+            - 'South Central US'
+            - 'West Central US'
+            - 'Canada Central'
+            - 'Canada East'
+            - 'Brazil South'
+            - 'North Europe'
+            - 'West Europe'
+            - 'France Central'
+            - 'Germany West Central'
+            - 'Norway East'
+            - 'Switzerland North'
+            - 'UK South'
+            - 'UK West'
+            - 'Australia East'
+            - 'Australia Southeast'
+            - 'Central India'
+            - 'South India'
+            - 'Japan East'
+            - 'Japan West'
+            - 'Korea Central'
+            - 'Southeast Asia'
+            - 'East Asia'
+        
+        sku:
+          title: Storage Account SKU
+          type: string
+          description: Performance and replication type for the storage account
+          default: Standard_LRS
+          enum:
+            - Standard_LRS
+            - Standard_GRS
+            - Standard_RAGRS
+            - Standard_ZRS
+            - Premium_LRS
+            - Premium_ZRS
+            - Standard_GZRS
+            - Standard_RAGZRS
+          enumNames:
+            - 'Standard LRS (Locally Redundant Storage)'
+            - 'Standard GRS (Geo-Redundant Storage)'
+            - 'Standard RA-GRS (Read-Access Geo-Redundant Storage)'
+            - 'Standard ZRS (Zone-Redundant Storage)'
+            - 'Premium LRS (Premium Locally Redundant Storage)'
+            - 'Premium ZRS (Premium Zone-Redundant Storage)'
+            - 'Standard GZRS (Geo-Zone-Redundant Storage)'
+            - 'Standard RA-GZRS (Read-Access Geo-Zone-Redundant Storage)'
+        
+        environment:
+          title: Environment
+          type: string
+          description: Target environment for deployment
+          default: dev
+          enum:
+            - dev
+            - test
+            - staging
+            - prod
+          enumNames:
+            - 'Development'
+            - 'Test'
+            - 'Staging'
+            - 'Production'
+        
+        resourceGroupName:
+          title: Resource Group Name
+          type: string
+          description: Name of the Azure Resource Group (will be created if it doesn't exist)
+          default: 'rg-storage-${{ parameters.environment }}-${{ parameters.location }}'
+        
+        enablePublicAccess:
+          title: Enable Public Access
+          type: boolean
+          description: Allow public access to the storage account
+          default: false
+        
+        tags:
+          title: Additional Tags
+          type: object
+          description: Additional tags to apply to the storage account
+          properties:
+            costCenter:
+              type: string
+              title: Cost Center
+            project:
+              type: string
+              title: Project Name
+            owner:
+              type: string
+              title: Owner
+          additionalProperties:
+            type: string
+
+  # Steps to execute when the template is triggered
+  steps:
+    - id: fetch-base
+      name: Fetch Infrastructure Template
+      action: fetch:template
+      input:
+        url: ./infrastructure
+        values:
+          storageAccountName: ${{ parameters.name }}
+          location: ${{ parameters.location }}
+          sku: ${{ parameters.sku }}
+          environment: ${{ parameters.environment }}
+          resourceGroupName: ${{ parameters.resourceGroupName }}
+          enablePublicAccess: ${{ parameters.enablePublicAccess }}
+          tags: ${{ parameters.tags }}
+          projectName: ${{ parameters.name }}-storage
+    
+    - id: publish
+      name: Publish to Azure DevOps
+      action: publish:azure
+      input:
+        repoUrl: 'dev.azure.com?repo=${{ parameters.name }}-storage&owner=${{ parameters.owner | default("platform-team") }}&organization=your-org'
+        description: 'Azure Storage Account infrastructure for ${{ parameters.name }}'
+        defaultBranch: main
+    
+    - id: register
+      name: Register in Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+        catalogInfoPath: '/catalog-info.yaml'
+    
+    - id: create-pipeline
+      name: Create Azure DevOps Pipeline
+      action: azure:pipeline:create
+      input:
+        organization: your-org
+        project: infrastructure
+        repo: ${{ steps.publish.output.repoName }}
+        pipelineName: '${{ parameters.name }}-storage-deployment'
+        yamlPath: '/.azure-pipelines/deploy.yml'
+    
+    - id: trigger-deployment
+      name: Trigger Initial Deployment
+      action: azure:pipeline:run
+      input:
+        organization: your-org
+        project: infrastructure
+        pipelineName: '${{ parameters.name }}-storage-deployment'
+        branch: main
+
+  # Output information displayed to the user
+  output:
+    links:
+      - title: Repository
+        url: ${{ steps.publish.output.remoteUrl }}
+        icon: github
+      - title: Pipeline
+        url: 'https://dev.azure.com/your-org/infrastructure/_build?definitionId=${{ steps.create-pipeline.output.pipelineId }}'
+        icon: azure-devops
+      - title: Azure Portal
+        url: 'https://portal.azure.com/#@/resource/subscriptions/your-subscription-id/resourceGroups/${{ parameters.resourceGroupName }}/providers/Microsoft.Storage/storageAccounts/${{ parameters.name }}'
+        icon: azure
+    text:
+      - title: 'Storage Account Details'
+        content: |
+          Your Azure Storage Account has been configured with the following details:
+          
+          - **Name**: ${{ parameters.name }}
+          - **Location**: ${{ parameters.location }}
+          - **SKU**: ${{ parameters.sku }}
+          - **Environment**: ${{ parameters.environment }}
+          - **Resource Group**: ${{ parameters.resourceGroupName }}
+          - **Public Access**: ${{ parameters.enablePublicAccess }}
+          
+          The infrastructure code has been generated and a deployment pipeline has been created.
+          You can monitor the deployment progress through the Azure DevOps pipeline link above.
